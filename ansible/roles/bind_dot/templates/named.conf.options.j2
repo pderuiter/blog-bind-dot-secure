@@ -1,0 +1,76 @@
+// {{ bind_install_options_conf }}
+// {{ ansible_managed }}
+
+acl trusted {
+{% for net in bind_dot_trusted_networks %}
+    {{ net }};
+{% endfor %}
+};
+
+options {
+    directory "{{ bind_install_data_dir }}";
+
+    // Standard DNS
+    listen-on { {% for a in bind_dot_listen_v4 | unique %}{{ a }}; {% endfor %}};
+    listen-on-v6 { {% for a in bind_dot_listen_v6 | unique %}{{ a }}; {% endfor %}};
+
+    // DNS over TLS
+    listen-on port 853 tls dot-server { {% for a in bind_dot_listen_v4 | unique %}{{ a }}; {% endfor %}};
+    listen-on-v6 port 853 tls dot-server { {% for a in bind_dot_listen_v6 | unique %}{{ a }}; {% endfor %}};
+
+    // Access control
+    allow-query { trusted; };
+    allow-recursion { trusted; };
+    recursion yes;
+
+    // DNSSEC
+    dnssec-validation auto;
+
+    // Performance
+    tcp-clients {{ bind_dot_tcp_clients }};
+    tcp-keepalive-timeout {{ bind_dot_tcp_keepalive_timeout }};    // units of 100 ms
+
+    // Security
+    version none;
+    hostname none;
+{% if bind_dot_forwarding | bool %}
+
+    // Forward all queries via DoT (BIND 9.20+)
+    forward {{ bind_dot_forward_mode }};
+    forwarders port 853 tls upstream-dot {
+{% for f in bind_dot_forwarders %}
+        {{ f }};
+{% endfor %}
+    };
+{% endif %}
+};
+
+// Server TLS configuration
+tls dot-server {
+    cert-file "{{ bind_dot_tls_dir }}/cert.pem";
+    key-file "{{ bind_dot_tls_dir }}/key.pem";
+    dhparam-file "{{ bind_dot_tls_dir }}/dhparam.pem";
+    protocols { {% for p in bind_dot_protocols %}{{ p }}; {% endfor %}};
+    ciphers "{{ bind_dot_ciphers }}";
+    prefer-server-ciphers yes;
+    session-tickets yes;
+};
+{% if bind_dot_forwarding | bool %}
+
+// Upstream DoT configuration (for forwarding)
+tls upstream-dot {
+    ca-file "{{ bind_dot_upstream_ca_file }}";
+    remote-hostname "{{ bind_dot_upstream_hostname }}";
+    protocols { TLSv1.2; TLSv1.3; };
+};
+{% endif %}
+
+logging {
+    channel tls_log {
+        file "{{ bind_dot_log_dir }}/tls.log" versions 5 size 10m;
+        severity info;
+        print-time yes;
+        print-category yes;
+    };
+    category network { tls_log; };
+};

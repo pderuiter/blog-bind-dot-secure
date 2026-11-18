@@ -1,0 +1,85 @@
+---
+# Functional checks from the post. Run after site.yml:
+#   ansible-playbook tests/verify.yml
+- name: Verify DNS over TLS
+  hosts: dot_resolvers
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Query over plain DNS on port 53
+      ansible.builtin.command: dig @127.0.0.1 example.com A
+      register: verify_plain
+      changed_when: false
+      # A freshly restarted resolver may need a moment for its first answers.
+      until: verify_plain.stdout is search('status. NOERROR')
+      retries: 10
+      delay: 3
+
+    - name: Query over DoT with dig
+      ansible.builtin.command: dig +tls @127.0.0.1 example.com A
+      register: verify_dig_tls
+      changed_when: false
+
+    - name: Query over DoT with kdig
+      ansible.builtin.command: kdig +tls @127.0.0.1 example.com A
+      register: verify_kdig_tls
+      changed_when: false
+
+    - name: Check which ports named listens on
+      ansible.builtin.command: ss -tlnp
+      register: verify_ss
+      changed_when: false
+
+    - name: Check the results
+      ansible.builtin.assert:
+        that:
+          - verify_plain.stdout is search('status. NOERROR')
+          - verify_dig_tls.stdout is search('status. NOERROR')
+          - verify_dig_tls.stdout is search('#853.*\(TLS\)')
+          - verify_kdig_tls.stdout is search('status. NOERROR')
+          - verify_kdig_tls.stdout is search('TLS')
+          - verify_ss.stdout is search('127.0.0.1:853 .*named')
+          - verify_ss.stdout is search('127.0.0.1:53 .*named')
+
+    - name: Check DoT forwarding to the upstream resolvers
+      when: bind_dot_forwarding | default(false) | bool
+      block:
+        - name: Resolve names through the DoT forwarders
+          ansible.builtin.command: "dig @127.0.0.1 {{ item }} A"
+          register: verify_forwarded
+          changed_when: false
+          loop:
+            - isc.org
+            - wikipedia.org
+            - debian.org
+
+        - name: List TCP connections to the upstream port 853
+          ansible.builtin.command: ss -tn state established '( dport = :853 )'
+          register: verify_upstream
+          changed_when: false
+
+        - name: Read the named journal for TLS verification failures
+          ansible.builtin.command: journalctl -u named --no-pager
+          register: verify_journal
+          changed_when: false
+
+        - name: Check the forwarding results
+          ansible.builtin.assert:
+            that:
+              - verify_forwarded.results | map(attribute='stdout') | select('search', 'status. NOERROR') | list | length == 3
+              - verify_upstream.stdout is search('1\.[01]\.[01]\.1:853')
+              - verify_journal.stdout is not search('verification failed')
+
+    - name: Check the nftables ruleset
+      when: bind_dot_nftables | default(false) | bool
+      block:
+        - name: List the nftables ruleset
+          ansible.builtin.command: nft list ruleset
+          register: verify_nft
+          changed_when: false
+
+        - name: Check that the DoT rate limit is loaded
+          ansible.builtin.assert:
+            that:
+              - verify_nft.stdout is search('meter dot-meter')
+              - verify_nft.stdout is search('hook input')

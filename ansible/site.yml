@@ -1,0 +1,6 @@
+---
+- name: BIND resolver with DNS over TLS
+  hosts: dot_resolvers
+  roles:
+    - role: bind_install
+    - role: bind_dot

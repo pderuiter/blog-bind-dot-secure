@@ -1,0 +1,21 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy accept;
+
+        # Rate limit new DoT connections (must come before the accept)
+        tcp dport 853 ct state new meter dot-meter { ip saddr limit rate over {{ bind_dot_nftables_rate }} } drop
+
+        # Allow DoT
+        tcp dport 853 accept
+    }
+
+    chain output {
+        type filter hook output priority 0; policy accept;
+
+        # Allow outgoing DoT
+        tcp dport 853 accept
+    }
+}

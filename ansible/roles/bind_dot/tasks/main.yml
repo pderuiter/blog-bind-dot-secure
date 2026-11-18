@@ -1,0 +1,85 @@
+---
+- name: Check the supported platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == 'Debian'
+    fail_msg: "This role follows the post's Debian/Ubuntu layout (/etc/bind)"
+    quiet: true
+
+- name: Check that DoT forwarding has BIND 9.20
+  ansible.builtin.assert:
+    that:
+      - bind_install_version is version('9.20', '>=')
+    fail_msg: "DoT forwarding needs BIND 9.20 or later (installed: {{ bind_install_version }}); set bind_install_source: isc"
+    quiet: true
+  when: bind_dot_forwarding | bool
+
+- name: Install the Python cryptography library for the certificate tasks
+  ansible.builtin.apt:
+    name: python3-cryptography
+    state: present
+
+- name: Install the DoT test tools
+  ansible.builtin.apt:
+    name: knot-dnsutils
+    state: present
+  when: bind_dot_install_tools | bool
+
+- name: Create the TLS and log directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ bind_install_user }}"
+    group: "{{ bind_install_group }}"
+    mode: "0750"
+  loop:
+    - "{{ bind_dot_tls_dir }}"
+    - "{{ bind_dot_log_dir }}"
+
+- name: Create the self-signed certificate
+  ansible.builtin.include_tasks: selfsigned.yml
+  when: bind_dot_cert_source == 'selfsigned'
+
+- name: Copy the certificate and key
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ bind_dot_tls_dir }}/{{ item.dest }}"
+    owner: "{{ bind_install_user }}"
+    group: "{{ bind_install_group }}"
+    mode: "0640"
+  loop:
+    - { src: "{{ bind_dot_cert_file }}", dest: cert.pem }
+    - { src: "{{ bind_dot_key_file }}", dest: key.pem }
+  loop_control:
+    label: "{{ item.dest }}"
+  no_log: true
+  when: bind_dot_cert_source == 'files'
+  notify: Restart named
+
+- name: Generate the DH parameters
+  community.crypto.openssl_dhparam:
+    path: "{{ bind_dot_tls_dir }}/dhparam.pem"
+    size: "{{ bind_dot_dhparam_bits }}"
+    owner: "{{ bind_install_user }}"
+    group: "{{ bind_install_group }}"
+    mode: "0640"
+  notify: Restart named
+
+- name: Configure BIND with DNS over TLS
+  ansible.builtin.template:
+    src: named.conf.options.j2
+    dest: "{{ bind_install_options_conf }}"
+    owner: root
+    group: "{{ bind_install_group }}"
+    mode: "0640"
+    validate: named-checkconf %s
+  notify: Restart named
+
+- name: Configure nftables for DoT
+  ansible.builtin.include_tasks: nftables.yml
+  when: bind_dot_nftables | bool
+
+- name: Start named
+  ansible.builtin.service:
+    name: "{{ bind_install_service }}"
+    state: started

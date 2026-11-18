@@ -1,0 +1,35 @@
+---
+- name: Generate the private key
+  community.crypto.openssl_privatekey:
+    path: "{{ bind_dot_tls_dir }}/key.pem"
+    type: RSA
+    size: 4096
+    owner: "{{ bind_install_user }}"
+    group: "{{ bind_install_group }}"
+    mode: "0640"
+  notify: Restart named
+
+- name: Generate the certificate signing request
+  community.crypto.openssl_csr:
+    path: "{{ bind_dot_tls_dir }}/cert.csr"
+    privatekey_path: "{{ bind_dot_tls_dir }}/key.pem"
+    common_name: "{{ bind_dot_server_name }}"
+    organization_name: Example
+    country_name: US
+    subject_alt_name:
+      - "DNS:{{ bind_dot_server_name }}"
+    owner: "{{ bind_install_user }}"
+    group: "{{ bind_install_group }}"
+    mode: "0640"
+
+- name: Self-sign the certificate
+  community.crypto.x509_certificate:
+    path: "{{ bind_dot_tls_dir }}/cert.pem"
+    csr_path: "{{ bind_dot_tls_dir }}/cert.csr"
+    privatekey_path: "{{ bind_dot_tls_dir }}/key.pem"
+    provider: selfsigned
+    selfsigned_not_after: "+{{ bind_dot_cert_days }}d"
+    owner: "{{ bind_install_user }}"
+    group: "{{ bind_install_group }}"
+    mode: "0640"
+  notify: Restart named

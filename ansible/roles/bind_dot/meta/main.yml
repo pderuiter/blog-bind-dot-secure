@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: bind_dot
+  author: Patrick de Ruiter
+  description: BIND resolver with a native DNS over TLS listener and optional DoT forwarding
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+dependencies: []

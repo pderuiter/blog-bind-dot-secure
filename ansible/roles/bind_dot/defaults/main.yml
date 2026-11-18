@@ -1,0 +1,50 @@
+---
+bind_dot_tls_dir: /etc/bind/tls
+bind_dot_log_dir: /var/log/named
+
+# Addresses for the plain (53) and DoT (853) listeners.
+bind_dot_listen_v4:
+  - 127.0.0.1
+  - "{{ ansible_facts['default_ipv4']['address'] | default('127.0.0.1') }}"
+bind_dot_listen_v6:
+  - ::1
+
+bind_dot_trusted_networks:
+  - localhost
+  - 192.168.0.0/16
+  - 10.0.0.0/8
+
+# selfsigned: generate key, certificate and DH parameters on the server (testing only).
+# files:      copy bind_dot_cert_file / bind_dot_key_file from the controller
+#             (for example a Let's Encrypt fullchain.pem and privkey.pem).
+bind_dot_cert_source: selfsigned
+bind_dot_cert_file: ""
+bind_dot_key_file: ""
+bind_dot_server_name: dns.example.com
+bind_dot_cert_days: 365
+bind_dot_dhparam_bits: 2048
+
+bind_dot_protocols:
+  - TLSv1.2
+  - TLSv1.3
+bind_dot_ciphers: "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305"
+
+bind_dot_tcp_clients: 2000
+# tcp-keepalive-timeout is in units of 100 ms: 600 = 60 seconds.
+bind_dot_tcp_keepalive_timeout: 600
+
+# DoT forwarding (BIND 9.20+). remote-hostname is checked for every server in the list,
+# so only list servers that present that certificate name.
+bind_dot_forwarding: false
+bind_dot_forward_mode: only
+bind_dot_forwarders:
+  - 1.1.1.1
+  - 1.0.0.1
+bind_dot_upstream_hostname: cloudflare-dns.com
+bind_dot_upstream_ca_file: /etc/ssl/certs/ca-certificates.crt
+
+bind_dot_nftables: false
+bind_dot_nftables_rate: 100/minute
+
+# Install kdig (knot-dnsutils) for testing, as used in the post.
+bind_dot_install_tools: true
